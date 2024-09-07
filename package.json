@@ -7,7 +7,7 @@
     "example": "root"
   },
   "scripts": {
-    "build": "gulp build"  ,
+    "build": "gulp build",
     "open-app": "gulp open-app",
     "start": "npm run open-app",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -42,9 +42,9 @@
     "gulp-autoprefixer": "^7.0.1",
     "gulp-clean": "^0.4.0",
     "gulp-install": "^1.1.0",
+    "gulp-open": "^3.0.1",
     "gulp-sass": "^5.1.0",
     "gulp-sourcemaps": "^2.6.5",
-    "gulp-open": "^3.0.1",
     "sass": "^1.49.9"
   },
   "homepage": "http://creative-tim.com/product/material-dashboard"
