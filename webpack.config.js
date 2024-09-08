@@ -1,125 +1,133 @@
-const Webpack = require("webpack");
-const Path = require("path");
-const TerserPlugin = require("terser-webpack-plugin");
-const MiniCssExtractPlugin = require("mini-css-extract-plugin");
-const CssMinimizerPlugin = require("css-minimizer-webpack-plugin");
-const CopyWebpackPlugin = require("copy-webpack-plugin");
-const FileManagerPlugin = require("filemanager-webpack-plugin");
+const path = require('path');
+const glob = require('glob');
+const TerserPlugin = require('terser-webpack-plugin');
+// -------------------------------------------------------------------------------
+// Config
 
-const opts = {
-  rootDir: process.cwd(),
-  devBuild: process.env.NODE_ENV !== "production"
+const conf = (() => {
+  const _conf = require('./build-config');
+  return require('deepmerge').all([{}, _conf.base || {}, _conf[process.env.NODE_ENV] || {}]);
+})();
+
+conf.distPath = path.resolve(__dirname, conf.distPath);
+
+// -------------------------------------------------------------------------------
+// NPM packages to transpile
+
+const TRANSPILE_PACKAGES = ['bootstrap', 'popper.js', 'shepherd.js'];
+
+const packageRegex = package => `(?:\\\\|\\/)${package}(?:\\\\|\\/).+?\\.js$`;
+
+// -------------------------------------------------------------------------------
+// Build config
+
+const collectEntries = () => {
+  const fileList = glob.sync(`!(${conf.exclude.join('|')})/**/!(_)*.@(js|es6)`) || [];
+  return fileList.reduce((entries, file) => {
+    const filePath = file.replace(/\\/g, '/');
+    return { ...entries, [filePath.replace(/\.(?:js|es6)$/, '')]: `./${filePath}` };
+  }, {});
 };
 
-module.exports = {
-  entry: {
-    app: "./src/js/app.js"
-  },
-  mode: process.env.NODE_ENV === "production" ? "production" : "development",
-  devtool:
-    process.env.NODE_ENV === "production" ? "source-map" : "inline-source-map",
-  output: {
-    path: Path.join(opts.rootDir, "dist"),
-    pathinfo: opts.devBuild,
-    filename: "js/[name].js",
-    chunkFilename: 'js/[name].js',
-  },
-  performance: { hints: false },
-  optimization: {
-    minimizer: [
-      new TerserPlugin({
-        parallel: true,
-        terserOptions: {
-          ecma: 5
-        }
-      }),
-      new CssMinimizerPlugin({})
+const babelLoader = () => ({
+  loader: 'babel-loader',
+  options: {
+    presets: [['@babel/preset-env', { targets: 'last 2 versions, ie >= 10' }]],
+    plugins: [
+      '@babel/plugin-transform-destructuring',
+      '@babel/plugin-transform-object-rest-spread',
+      '@babel/plugin-transform-template-literals'
     ],
-    runtimeChunk: false
+    babelrc: false
+  }
+});
+
+const webpackConfig = {
+  mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+  performance: {
+    hints: false,
+    maxEntrypointSize: 512000,
+    maxAssetSize: 512000
   },
-  plugins: [
-    // Extract css files to seperate bundle
-    new MiniCssExtractPlugin({
-      filename: "css/app.css",
-      chunkFilename: "css/app.css"
-    }),
-    // Copy fonts and images to dist
-    new CopyWebpackPlugin({
-      patterns: [
-        { from: "src/fonts", to: "fonts" },
-        { from: "src/img", to: "img" }
-      ]
-    }),
-    // Copy dist folder to static
-    new FileManagerPlugin({
-      events: {
-        onEnd: {
-          copy: [
-            { source: "./dist/", destination: "./static" }
-          ]
-        }
-      }
-    }),
-  ],
+  entry: collectEntries(),
+
+  output: {
+    path: conf.distPath,
+    filename: '[name].js',
+    libraryTarget: 'umd'
+  },
   module: {
     rules: [
-      // Babel-loader
       {
-        test: /\.js$/,
-        exclude: /(node_modules)/,
-        use: {
-          loader: "babel-loader",
-          options: {
-            cacheDirectory: true
-          }
-        }
+        // Transpile sources
+        test: /\.es6$|\.js$/,
+        exclude: [path.resolve(__dirname, 'node_modules')],
+        use: [babelLoader()]
       },
-      // Css-loader & sass-loader
       {
-        test: /\.(sa|sc|c)ss$/,
+        // Transpile required packages
+        test: new RegExp(`(?:${TRANSPILE_PACKAGES.map(packageRegex).join(')|(?:')})`),
+        include: [path.resolve(__dirname, 'node_modules')],
+        use: [babelLoader()]
+      },
+      {
+        test: /\.css$/,
+        use: [{ loader: 'style-loader' }, { loader: 'css-loader' }]
+      },
+      {
+        test: /\.scss$/,
+        use: [{ loader: 'style-loader' }, { loader: 'css-loader' }, { loader: 'sass-loader' }]
+      },
+      {
+        test: /\.html$/,
         use: [
-          MiniCssExtractPlugin.loader,
-          "css-loader",
-          "postcss-loader",
           {
-            loader: "sass-loader",
-            options: {
-              implementation: require.resolve("sass"),
-            }
+            loader: 'html-loader',
+            options: { minimize: true }
           }
         ]
-      },
-      // Load fonts
-      {
-        test: /\.(woff(2)?|ttf|eot|svg)(\?v=\d+\.\d+\.\d+)?$/,
-        type: "asset/resource",
-        generator: {
-          filename: "fonts/[name][ext]"
-        }
-      },
-      // Load images
-      {
-        test: /\.(png|jpg|jpeg|gif)(\?v=\d+\.\d+\.\d+)?$/,
-        type: "asset/resource",
-        generator: {
-          filename: "img/[name][ext]"
-        }
-      },
+      }
     ]
   },
-  resolve: {
-    extensions: [".js", ".scss"],
-    modules: ["node_modules"],
-    alias: {
-      request$: "xhr"
-    }
-  },
-  devServer: {
-    static: {
-      directory: Path.join(__dirname, "static")
-    },
-    compress: true,
-    port: 8080,
-    open: true
+  plugins: [],
+
+  externals: {
+    jquery: 'jQuery',
+    moment: 'moment',
+    jsdom: 'jsdom',
+    velocity: 'Velocity',
+    hammer: 'Hammer',
+    pace: '"pace-progress"',
+    chartist: 'Chartist',
+    'popper.js': 'Popper',
+
+    // blueimp-gallery plugin
+    './blueimp-helper': 'jQuery',
+    './blueimp-gallery': 'blueimpGallery',
+    './blueimp-gallery-video': 'blueimpGallery'
   }
 };
+
+// -------------------------------------------------------------------------------
+// Sourcemaps
+if (conf.sourcemaps) {
+  webpackConfig.devtool = conf.devtool;
+}
+
+// -------------------------------------------------------------------------------
+// Minify
+
+// Minifies sources by default in production mode
+if (process.env.NODE_ENV !== 'production' && conf.minify) {
+  webpackConfig.plugins.push(
+    new TerserPlugin({
+      optimization: {
+        minimize: true
+      },
+      sourceMap: conf.sourcemaps,
+      parallel: true
+    })
+  );
+}
+
+module.exports = webpackConfig;
